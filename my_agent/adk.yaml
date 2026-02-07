@@ -1,0 +1,3 @@
+name: my_agent
+description: "Time + email triage agent."
+entrypoint: my_agent.agent:email_triage_agent
