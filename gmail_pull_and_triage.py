@@ -2,6 +2,8 @@ import os
 import base64
 import json
 from email import message_from_bytes
+import csv
+from pathlib import Path
 
 import requests
 from google.oauth2.credentials import Credentials
@@ -11,7 +13,9 @@ from googleapiclient.discovery import build
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
-TRIAGE_API_URL = "http://localhost:8000/triage-email"  # adjust if needed
+TRIAGE_API_URL = "http://localhost:8000/triage-email"
+
+LOG_PATH = Path("triage_log.csv")
 
 
 def get_gmail_service():
@@ -114,14 +118,52 @@ def describe_planned_action(triage: dict) -> dict:
         "confidence": confidence,
     }
 
+def append_log(message_id: str, details: dict, triage: dict):
+    row = {
+        "message_id": message_id,
+        "sender": details.get("sender", ""),
+        "recipient": details.get("recipient", ""),
+        "subject": details.get("subject", ""),
+        "category": triage.get("category", ""),
+        "suggested_action": triage.get("suggested_action", ""),
+        "confidence": triage.get("confidence", ""),
+        "labels": ",".join(triage.get("labels", [])),
+    }
+
+    file_exists = LOG_PATH.exists()
+    with LOG_PATH.open("a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "message_id",
+                "sender",
+                "recipient",
+                "subject",
+                "category",
+                "suggested_action",
+                "confidence",
+                "labels",
+            ],
+        )
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(row)
+
 
 def main():
     service = get_gmail_service()
 
+    seen_ids = set()
+    if LOG_PATH.exists():
+        with LOG_PATH.open("r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                seen_ids.add(row.get("message_id"))
+
     results = (
         service.users()
         .messages()
-        .list(userId="me", labelIds=["INBOX"], maxResults=10)
+        .list(userId="me", labelIds=["INBOX"], maxResults=1)
         .execute()
     )
     messages = results.get("messages", [])
@@ -132,6 +174,9 @@ def main():
 
     for m in messages:
         msg_id = m["id"]
+        if msg_id in seen_ids:
+            continue
+        
         details = get_message_detail(service, msg_id)
 
         print("\n=== EMAIL ===")
@@ -139,8 +184,10 @@ def main():
         print(f"Subject: {details.get('subject', '(no subject)')}")
         print("-" * 40)
 
-
         triage = triage_via_api(details)
+
+        # Log to CSV
+        append_log(msg_id, details, triage)
 
         print("=== TRIAGE RAW ===")
         print(json.dumps(triage, indent=2))

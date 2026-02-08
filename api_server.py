@@ -13,7 +13,9 @@ from my_agent.agent import root_agent  # email_triage_agent set as root_agent
 
 # ---------- CONFIG ----------
 
-API_KEY = "AIzaSyAdlkVRjc0-QJT0kdXNBNC5rO-5WPQORU0"  # put your Gemini API key here
+API_KEY = os.getenv("GOOGLE_API_KEY")
+if not API_KEY:
+    raise ValueError("GOOGLE_API_KEY environment variable not set. Please set it in .env or your system environment.")
 client = genai.Client(api_key=API_KEY)
 
 app = FastAPI(title="Email Triage API")
